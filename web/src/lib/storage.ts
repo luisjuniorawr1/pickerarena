@@ -3,9 +3,14 @@ import type { Lineup } from '../domain/types'
 const USER_KEY = 'pa_user'
 const LINEUPS_KEY = 'pa_lineups'
 
+export type AuthMode = 'demo' | 'firebase'
+
 export interface SessionUser {
   id: string
   displayName: string
+  email?: string | null
+  photoURL?: string | null
+  mode?: AuthMode
 }
 
 export function getUser(): SessionUser | null {
@@ -21,11 +26,16 @@ export function getUser(): SessionUser | null {
 export function login(displayName: string): SessionUser {
   const trimmed = displayName.trim()
   const user: SessionUser = {
-    id: `u-${trimmed.toLowerCase().replace(/\s+/g, '-')}`,
+    id: `demo-${trimmed.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     displayName: trimmed,
+    mode: 'demo',
   }
   localStorage.setItem(USER_KEY, JSON.stringify(user))
   return user
+}
+
+export function saveUserSession(user: SessionUser): void {
+  localStorage.setItem(USER_KEY, JSON.stringify(user))
 }
 
 export function logout(): void {
@@ -44,12 +54,14 @@ export function getLineups(): Lineup[] {
 
 export function saveLineup(lineup: Lineup): void {
   const all = getLineups().filter(
-    (l) => !(l.eventId === lineup.eventId && l.userId === lineup.userId),
+    (item) => !(item.eventId === lineup.eventId && item.userId === lineup.userId),
   )
   all.push(lineup)
   localStorage.setItem(LINEUPS_KEY, JSON.stringify(all))
 }
 
 export function getUserLineup(eventId: string, userId: string): Lineup | null {
-  return getLineups().find((l) => l.eventId === eventId && l.userId === userId) ?? null
+  return getLineups().find(
+    (lineup) => lineup.eventId === eventId && lineup.userId === userId,
+  ) ?? null
 }

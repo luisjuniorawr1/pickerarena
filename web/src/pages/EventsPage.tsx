@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 import { mockEvents } from '../data/mock'
-import { getUser, getUserLineup } from '../lib/storage'
+import type { Lineup } from '../domain/types'
+import { loadUserLineups } from '../lib/lineupRepository'
 
 function formatWhen(iso: string) {
   return new Intl.DateTimeFormat('pt-BR', {
@@ -28,22 +31,50 @@ const statusLabel: Record<string, string> = {
   void: 'Anulado',
 }
 
+const currentCycle = new Intl.DateTimeFormat('pt-BR', { month: 'long' }).format(new Date())
+
 export function EventsPage() {
-  const user = getUser()
+  const { user, loading } = useAuth()
+  const [lineups, setLineups] = useState<Lineup[]>([])
+  const [loadingLineups, setLoadingLineups] = useState(false)
+
+  useEffect(() => {
+    if (!user) {
+      setLineups([])
+      return
+    }
+
+    let cancelled = false
+    setLoadingLineups(true)
+    loadUserLineups(user.id)
+      .then((items) => {
+        if (!cancelled) setLineups(items)
+      })
+      .catch((error) => console.error('Não foi possível carregar as escalações.', error))
+      .finally(() => {
+        if (!cancelled) setLoadingLineups(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
+  if (loading) return <p className="page">Carregando eventos...</p>
   if (!user) return <Navigate to="/login" replace />
 
   return (
     <section className="page events-page">
       <header className="page-head events-head">
         <div>
-          <p className="eyebrow">Fantasy multi-esporte</p>
+          <p className="eyebrow">Fantasy esportivo gratuito</p>
           <h1>Escolha um evento</h1>
-          <p>Monte sua escalação e dispute o ranking mensal.</p>
+          <p>Monte sua escalação e dispute posições no ranking mensal.</p>
         </div>
         <div className="season-card">
           <span>Ciclo atual</span>
-          <strong>Julho</strong>
-          <small>Top 3 recebem prêmio real</small>
+          <strong>{currentCycle}</strong>
+          <small>Medalhas e XP virtuais</small>
         </div>
       </header>
       <div className="sport-tabs" role="tablist" aria-label="Esportes">
@@ -62,11 +93,13 @@ export function EventsPage() {
           <span className="live-dot" />
           <strong>Eventos em destaque</strong>
         </div>
-        <span>{mockEvents.length} partidas</span>
+        <span>{loadingLineups ? 'sincronizando...' : `${mockEvents.length} partidas`}</span>
       </div>
       <ul className="event-list">
         {mockEvents.map((event) => {
-          const mine = getUserLineup(event.id, user.id)
+          const mine = lineups.find(
+            (lineup) => lineup.eventId === event.id && lineup.userId === user.id,
+          )
           return (
             <li key={event.id} className={`event-row event-row--${event.status}`}>
               <div className="event-card__topline">

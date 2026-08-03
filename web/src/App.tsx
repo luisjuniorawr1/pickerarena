@@ -1,13 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { useAuth } from './auth/AuthContext'
 import { AppShell } from './components/AppShell'
 import { EventDetailPage } from './pages/EventDetailPage'
 import { EventsPage } from './pages/EventsPage'
 import { LoginPage } from './pages/LoginPage'
 import { RankingPage } from './pages/RankingPage'
-import { getUser } from './lib/storage'
 
 function HomeRedirect() {
-  return <Navigate to={getUser() ? '/eventos' : '/login'} replace />
+  const { user, loading } = useAuth()
+  if (loading) return <p className="page">Carregando sua conta...</p>
+  return <Navigate to={user ? '/eventos' : '/login'} replace />
 }
 
 export default function App() {

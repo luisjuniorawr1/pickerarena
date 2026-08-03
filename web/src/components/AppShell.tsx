@@ -1,10 +1,15 @@
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { getUser, logout } from '../lib/storage'
+import { useAuth } from '../auth/AuthContext'
 
 export function AppShell() {
-  const user = getUser()
+  const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const initial = user?.displayName.trim().charAt(0).toUpperCase() || 'P'
+
+  async function handleSignOut() {
+    await signOut()
+    navigate('/login')
+  }
 
   return (
     <div className="shell">
@@ -23,7 +28,7 @@ export function AppShell() {
           {user ? (
             <>
               <span className="wallet">
-                <small>Moedas</small>
+                <small>XP</small>
                 <strong>9.500</strong>
               </span>
               <span className="session-avatar" aria-hidden="true">
@@ -33,10 +38,7 @@ export function AppShell() {
               <button
                 type="button"
                 className="btn ghost logout-button"
-                onClick={() => {
-                  logout()
-                  navigate('/login')
-                }}
+                onClick={handleSignOut}
               >
                 Sair
               </button>
