@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+web/dist/
+dist/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+.firebaserc.local
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Tool caches
+web/.vite/
+web/.eslintcache
+coverage/
