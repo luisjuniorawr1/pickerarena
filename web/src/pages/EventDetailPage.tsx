@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useParams } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
 import { mockEvents } from '../data/mock'
 import {
   resolveLineupSlots,
@@ -16,7 +17,7 @@ import {
   type Player,
   type Position,
 } from '../domain/types'
-import { getUser, getUserLineup, saveLineup } from '../lib/storage'
+import { loadUserLineup, persistLineup } from '../lib/lineupRepository'
 
 const posLabel: Record<Position, string> = {
   goleiro: 'GK',
@@ -26,8 +27,8 @@ const posLabel: Record<Position, string> = {
 }
 
 function spend(ids: string[], players: Player[]) {
-  const map = new Map(players.map((p) => [p.id, p]))
-  return ids.reduce((s, id) => s + (map.get(id)?.price ?? 0), 0)
+  const map = new Map(players.map((player) => [player.id, player]))
+  return ids.reduce((total, id) => total + (map.get(id)?.price ?? 0), 0)
 }
 
 function formatEventDate(iso: string) {
@@ -43,21 +44,56 @@ function formatEventDate(iso: string) {
 
 export function EventDetailPage() {
   const { eventId } = useParams()
-  const user = getUser()
-  const event = mockEvents.find((e) => e.id === eventId) ?? null
+  const { user, loading: authLoading } = useAuth()
+  const event = mockEvents.find((item) => item.id === eventId) ?? null
 
-  const existing = user && event ? getUserLineup(event.id, user.id) : null
-  const [starters, setStarters] = useState<string[]>(existing?.starters ?? [])
-  const [bench, setBench] = useState<string[]>(existing?.bench ?? [])
+  const [starters, setStarters] = useState<string[]>([])
+  const [bench, setBench] = useState<string[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const [filter, setFilter] = useState<Position | 'all'>('all')
-  const [saved, setSaved] = useState<Lineup | null>(existing)
+  const [saved, setSaved] = useState<Lineup | null>(null)
+  const [lineupLoading, setLineupLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!user || !event) {
+      setStarters([])
+      setBench([])
+      setSaved(null)
+      setLineupLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setLineupLoading(true)
+    setMessage(null)
+
+    loadUserLineup(event.id, user.id)
+      .then((existing) => {
+        if (cancelled) return
+        setStarters(existing?.starters ?? [])
+        setBench(existing?.bench ?? [])
+        setSaved(existing)
+      })
+      .catch((error) => {
+        console.error('Não foi possível carregar a escalação.', error)
+        if (!cancelled) setMessage('Não foi possível sincronizar sua escalação.')
+      })
+      .finally(() => {
+        if (!cancelled) setLineupLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [event?.id, user?.id])
 
   const scoredSlots = useMemo(() => {
     if (!event || event.status !== 'scored' || !event.stats || !saved) return null
     return resolveLineupSlots(saved, event.players, event.stats)
   }, [event, saved])
 
+  if (authLoading) return <p className="page">Carregando sua conta...</p>
   if (!user) return <Navigate to="/login" replace />
   if (!event) {
     return (
@@ -72,16 +108,17 @@ export function EventDetailPage() {
   const currentEvent = event
   const players = currentEvent.players
   const canEdit =
-    currentEvent.status === 'scored' ||
-    (currentEvent.status === 'open' && new Date() <= new Date(currentEvent.startsAt))
+    !lineupLoading &&
+    (currentEvent.status === 'scored' ||
+      (currentEvent.status === 'open' && new Date() <= new Date(currentEvent.startsAt)))
   const starterSpend = spend(starters, players)
   const benchSpend = spend(bench, players)
   const validation = validateFootballLineup({ starters, bench }, players)
   const selected = new Set([...starters, ...bench])
-  const visible = players.filter((p) => filter === 'all' || p.position === filter)
+  const visible = players.filter((player) => filter === 'all' || player.position === filter)
 
   function togglePlayer(player: Player) {
-    if (!canEdit) return
+    if (!canEdit || saving) return
     setMessage(null)
 
     if (starters.includes(player.id)) {
@@ -95,7 +132,7 @@ export function EventDetailPage() {
 
     const isGk = player.position === 'goleiro'
     const hasGk = [...starters, ...bench].some(
-      (id) => players.find((p) => p.id === id)?.position === 'goleiro',
+      (id) => players.find((item) => item.id === id)?.position === 'goleiro',
     )
     if (isGk && hasGk) {
       setMessage('Só pode 1 goleiro')
@@ -127,12 +164,14 @@ export function EventDetailPage() {
     setMessage('Escalação cheia (4 titulares + 2 reservas)')
   }
 
-  function onSave() {
+  async function onSave() {
+    if (saving) return
     const result = validateFootballLineup({ starters, bench }, players)
     if (!result.ok) {
       setMessage(result.errors.join(' · '))
       return
     }
+
     const lineup: Lineup = {
       eventId: currentEvent.id,
       userId: currentUser.id,
@@ -141,17 +180,27 @@ export function EventDetailPage() {
       submittedAt: new Date().toISOString(),
       scoringVersion: SCORING_VERSION,
     }
-    saveLineup(lineup)
-    setSaved(lineup)
-    setMessage(
-      currentEvent.status === 'scored'
-        ? 'Escalação salva — veja a pontuação abaixo'
-        : 'Escalação salva',
-    )
+
+    setSaving(true)
+    setMessage(null)
+    try {
+      await persistLineup(lineup)
+      setSaved(lineup)
+      setMessage(
+        currentEvent.status === 'scored'
+          ? 'Escalação salva — veja a pontuação abaixo'
+          : 'Escalação sincronizada',
+      )
+    } catch (error) {
+      console.error('Não foi possível salvar a escalação.', error)
+      setMessage('Não foi possível salvar agora. Tente novamente.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   function nameOf(id: string) {
-    return players.find((p) => p.id === id)?.name ?? id
+    return players.find((player) => player.id === id)?.name ?? id
   }
 
   return (
@@ -193,6 +242,8 @@ export function EventDetailPage() {
         <span className={saved ? 'is-complete' : ''}>3 <small>Confirmação</small></span>
       </div>
 
+      {lineupLoading && <p className="flash">Sincronizando sua escalação...</p>}
+
       <div className="lineup-grid">
         <div className="squad-panel">
           <div className="panel-heading">
@@ -224,8 +275,8 @@ export function EventDetailPage() {
                   <button
                     type="button"
                     className="chip"
-                    onClick={() => togglePlayer(players.find((p) => p.id === id)!)}
-                    disabled={!canEdit}
+                    onClick={() => togglePlayer(players.find((player) => player.id === id)!)}
+                    disabled={!canEdit || saving}
                   >
                     <span>{nameOf(id).slice(0, 1)}</span>
                     {nameOf(id)}
@@ -245,14 +296,14 @@ export function EventDetailPage() {
               Reservas ({bench.length}/{MAX_BENCH})
             </h2>
             <ol>
-              {bench.map((id, i) => (
+              {bench.map((id, index) => (
                 <li key={id}>
-                  <span className="bench-order">R{i + 1}</span>
+                  <span className="bench-order">R{index + 1}</span>
                   <button
                     type="button"
                     className="chip"
-                    onClick={() => togglePlayer(players.find((p) => p.id === id)!)}
-                    disabled={!canEdit}
+                    onClick={() => togglePlayer(players.find((player) => player.id === id)!)}
+                    disabled={!canEdit || saving}
                   >
                     <span>{nameOf(id).slice(0, 1)}</span>
                     {nameOf(id)}
@@ -270,14 +321,14 @@ export function EventDetailPage() {
 
           {currentEvent.status === 'scored' && (
             <p className="hint">
-              Modo demo: monte o time e salve para ver o breakdown football-v1.
+              Evento demonstrativo: monte o time e salve para ver o breakdown football-v1.
             </p>
           )}
           {message && <p className="flash">{message}</p>}
           {!validation.ok && canEdit && (
             <ul className="errors">
-              {validation.errors.map((e) => (
-                <li key={e}>{e}</li>
+              {validation.errors.map((error) => (
+                <li key={error}>{error}</li>
               ))}
             </ul>
           )}
@@ -292,14 +343,14 @@ export function EventDetailPage() {
             <span className="rule-note">Máx. 1 GK</span>
           </div>
           <div className="filters">
-            {(['all', 'goleiro', 'zagueiro', 'meio', 'atacante'] as const).map((f) => (
+            {(['all', 'goleiro', 'zagueiro', 'meio', 'atacante'] as const).map((positionFilter) => (
               <button
-                key={f}
+                key={positionFilter}
                 type="button"
-                className={filter === f ? 'btn primary compact' : 'btn ghost compact'}
-                onClick={() => setFilter(f)}
+                className={filter === positionFilter ? 'btn primary compact' : 'btn ghost compact'}
+                onClick={() => setFilter(positionFilter)}
               >
-                {f === 'all' ? 'Todos' : posLabel[f]}
+                {positionFilter === 'all' ? 'Todos' : posLabel[positionFilter]}
               </button>
             ))}
           </div>
@@ -313,7 +364,7 @@ export function EventDetailPage() {
                     type="button"
                     className={`player-row ${inStarters ? 'is-starter' : ''} ${inBench ? 'is-bench' : ''}`}
                     onClick={() => togglePlayer(player)}
-                    disabled={!canEdit && !selected.has(player.id)}
+                    disabled={saving || (!canEdit && !selected.has(player.id))}
                   >
                     <span className={`player-avatar player-avatar--${player.teamId}`}>
                       {player.name.slice(0, 1)}
@@ -369,7 +420,7 @@ export function EventDetailPage() {
       )}
 
       {currentEvent.status === 'scored' && !saved && (
-        <p className="hint">Monte 4 titulares (+ banco) e salve para ver a pontuação mock.</p>
+        <p className="hint">Monte 4 titulares (+ banco) e salve para ver a pontuação demonstrativa.</p>
       )}
 
       {canEdit && (
@@ -378,8 +429,17 @@ export function EventDetailPage() {
             <span>{starters.length}/{STARTER_COUNT} titulares</span>
             <strong>{validation.ok ? 'Time pronto para confirmar' : 'Complete sua escalação'}</strong>
           </div>
-          <button type="button" className="btn primary" onClick={onSave} disabled={!validation.ok}>
-            {currentEvent.status === 'scored' ? 'Salvar e ver pontuação' : 'Confirmar escalação'}
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => void onSave()}
+            disabled={saving || !validation.ok}
+          >
+            {saving
+              ? 'Salvando...'
+              : currentEvent.status === 'scored'
+                ? 'Salvar e ver pontuação'
+                : 'Confirmar escalação'}
             <span aria-hidden="true">✓</span>
           </button>
         </div>
