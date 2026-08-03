@@ -67,6 +67,14 @@ async function saveCloudProfile(firebaseUser: FirebaseUser): Promise<void> {
   )
 }
 
+async function trySaveCloudProfile(firebaseUser: FirebaseUser): Promise<void> {
+  try {
+    await saveCloudProfile(firebaseUser)
+  } catch (error) {
+    console.error('Não foi possível atualizar o perfil no Firestore.', error)
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(() => getUser())
   const [loading, setLoading] = useState(firebaseEnabled)
@@ -90,12 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       saveUserSession(session)
       setUser(session)
       setLoading(false)
-
-      try {
-        await saveCloudProfile(firebaseUser)
-      } catch (error) {
-        console.error('Não foi possível atualizar o perfil no Firestore.', error)
-      }
+      await trySaveCloudProfile(firebaseUser)
     })
   }, [])
 
@@ -111,18 +114,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async signInGoogle() {
         if (!auth) throw new Error('Firebase ainda não está configurado.')
         const credential = await signInWithPopup(auth, new GoogleAuthProvider())
-        await saveCloudProfile(credential.user)
+        await trySaveCloudProfile(credential.user)
       },
       async signInEmail(email, password) {
         if (!auth) throw new Error('Firebase ainda não está configurado.')
         const credential = await signInWithEmailAndPassword(auth, email, password)
-        await saveCloudProfile(credential.user)
+        await trySaveCloudProfile(credential.user)
       },
       async signUpEmail(displayName, email, password) {
         if (!auth) throw new Error('Firebase ainda não está configurado.')
         const credential = await createUserWithEmailAndPassword(auth, email, password)
         await updateProfile(credential.user, { displayName: displayName.trim() })
-        await saveCloudProfile(credential.user)
+        await trySaveCloudProfile(credential.user)
       },
       async signOut() {
         if (auth?.currentUser) await firebaseSignOut(auth)
