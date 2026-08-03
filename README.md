@@ -1,8 +1,20 @@
 # Picker Arena
 
-Fantasy multi-esporte, evento a evento.
+Fantasy esportivo gratuito, evento a evento.
 
-## MVP web (mock)
+**Site:** https://luisjuniorawr1.github.io/pickerarena/
+
+## Estado atual
+
+- React + TypeScript + Vite
+- login de demonstração com `localStorage`
+- suporte preparado para Firebase Authentication
+- escalações salvas no Firestore quando o Firebase estiver configurado
+- fallback local automático enquanto as variáveis do Firebase estiverem vazias
+- ranking por pontos, XP e medalhas virtuais sem valor em dinheiro
+- deploy automático no GitHub Pages
+
+## Rodar localmente
 
 ```bash
 cd web
@@ -10,41 +22,45 @@ npm install
 npm run dev
 ```
 
-Abre o endereço do Vite (geralmente `http://localhost:5173`).
+## Conectar o Firebase
 
-### Fluxo
-1. Login com apelido (localStorage)
-2. Evento **aberto** — montar 4 titulares (orçamento 16) + até 2 reservas (orçamento 6)
-3. Evento **pontuado** — ver breakdown football-v1 + cobertura de banco
-4. Ranking mensal mock
+1. Crie um projeto no Firebase Console.
+2. Registre um aplicativo Web.
+3. Ative os provedores desejados em **Authentication**:
+   - Google
+   - E-mail/senha
+4. Crie o banco **Cloud Firestore**.
+5. Copie `web/.env.example` para `web/.env.local` e preencha:
 
-Regras de domínio: `.cursor/skills/picker-arena-dominio/SKILL.md`
-
-## Deploy (Firebase Hosting)
-
-O app é um SPA estático (Vite + React Router). Config em `firebase.json`
-(`public: web/dist`, rewrite de SPA para `index.html`).
-
-Pré-requisitos: conta Google/Firebase e um projeto Firebase criado.
-
-```bash
-# 1. Instalar a CLI (uma vez)
-npm install -g firebase-tools
-
-# 2. Login
-firebase login
-
-# 3. Vincular a um projeto Firebase existente (gera .firebaserc)
-firebase use --add        # escolha o projeto e dê o alias "default"
-
-# 4. Build do front
-cd web
-npm install
-npm run build
-cd ..
-
-# 5. Deploy
-firebase deploy --only hosting
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
 ```
 
-Ao final a CLI mostra a URL pública `https://<projeto>.web.app`.
+6. Para o GitHub Pages, cadastre os mesmos nomes em **Settings → Secrets and variables → Actions**.
+7. No Firebase Authentication, adicione `luisjuniorawr1.github.io` aos domínios autorizados.
+
+## Publicar as regras do Firestore
+
+Com a Firebase CLI autenticada e o projeto selecionado:
+
+```bash
+firebase use --add
+firebase deploy --only firestore:rules,firestore:indexes
+```
+
+As regras permitem que cada usuário leia e altere apenas o próprio perfil e as próprias escalações.
+
+## Fluxo do MVP
+
+1. Entrar com apelido em modo demonstração ou com conta Firebase.
+2. Escolher um evento.
+3. Montar 4 titulares e até 2 reservas dentro do orçamento virtual.
+4. Confirmar a escalação.
+5. Ver a pontuação e a posição no ranking.
+
+As partidas e estatísticas ainda são simuladas. A próxima fase é criar o painel administrativo e substituir os mocks por uma fonte esportiva autorizada.
